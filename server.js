@@ -81,9 +81,24 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
             const m = d.find(i => i.name && i.name.toLowerCase().includes(name));
             if(m) {
                 const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
-                // البحث بدقة عن رقم الحلقة المساوي للمطلوب
-                const ep = epData.episodes[s]?.find(ei => parseInt(ei.episode_num) === parseInt(e));
-                if(ep) streams.push({name: "khalid iptv", title: `S${s}E${e}`, url: `${b}/series/${c.username}/${c.password}/${ep.id}.${ep.container_extension || 'mp4'}`});
+                
+                const seasonEps = epData.episodes[s] || [];
+                // استبعاد أي ملف يحتوي على كلمات كواليس أو إعلانات أولاً
+                const cleanEps = seasonEps.filter(ei => {
+                    const t = (ei.title || "").toLowerCase();
+                    return !t.includes("behind") && !t.includes("making") && !t.includes("trailer") && !t.includes("bts") && !t.includes("interview");
+                });
+                
+                // البحث عن رقم الحلقة في القائمة النظيفة حصراً
+                const ep = cleanEps.find(ei => parseInt(ei.episode_num) === parseInt(e)) || seasonEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
+
+                if(ep) {
+                    streams.push({
+                        name: "khalid iptv", 
+                        title: `S${s}E${e}`, 
+                        url: `${b}/series/${c.username}/${c.password}/${ep.id}.${ep.container_extension || 'mp4'}`
+                    });
+                }
             }
         }
         streams.push({name: "Developer", title: "تابع حساب المطور على الإنستقرام\n@_gq6", externalUrl: "https://instagram.com/_gq6"});
