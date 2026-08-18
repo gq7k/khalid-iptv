@@ -8,31 +8,21 @@ app.get("/", (req, res) => {
     res.send(`
     <!DOCTYPE html>
     <html lang="ar" dir="rtl"><head><meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>khalid iptv</title>
     <style>
-        body { font-family: sans-serif; background: #000; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 15px; box-sizing: border-box; }
+        body { font-family: sans-serif; background: #000; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 15px; }
         .card { background: #111; padding: 20px; border-radius: 16px; width: 100%; max-width: 400px; text-align: center; border: 1px solid #333; }
         h1 { color: #ff0000; font-size: 22px; }
-        input { width: 100%; padding: 15px; margin: 8px 0; border-radius: 8px; border: 1px solid #444; background: #000; color: #fff; box-sizing: border-box; font-size: 16px; }
-        button { width: 100%; padding: 15px; background: #ff0000; color: white; border: none; border-radius: 8px; cursor: pointer; margin-top: 10px; font-weight: bold; font-size: 16px; }
-        .footer { margin-top: 20px; color: #ff0000; font-size: 14px; line-height: 1.8; }
-        .footer a { color: #ff0000; text-decoration: none; font-weight: bold; }
+        input { width: 100%; padding: 15px; margin: 8px 0; border-radius: 8px; border: 1px solid #444; background: #000; color: #fff; box-sizing: border-box; }
+        button { width: 100%; padding: 15px; background: #ff0000; color: white; border: none; border-radius: 8px; cursor: pointer; margin-top: 10px; font-weight: bold; }
     </style></head>
     <body><div class="card"><h1>khalid iptv</h1>
-    <input type="text" id="url" placeholder="url / الرابط">
-    <input type="text" id="username" placeholder="username / اسم المستخدم">
-    <input type="password" id="password" placeholder="password / كلمة المرور">
+    <input type="text" id="url" placeholder="url">
+    <input type="text" id="username" placeholder="username">
+    <input type="password" id="password" placeholder="password">
     <button onclick="gen()">توليد الرابط</button>
     <div id="res" style="margin-top:20px;display:none;">
         <input type="text" id="out" readonly>
-        <button style="background:#444" onclick="copyUrl()">نسخ الرابط</button>
-        <div id="expiry" style="margin-top:10px; color:#0f0; font-size:14px;"></div>
-    </div>
-    <div class="footer">
-        مطور الإضافة: المهندس خالد<br>
-        <a href="https://instagram.com/_gq6" target="_blank">@_gq6</a><br>
-        سبحان الله وبحمده سبحان الله العظيم
     </div></div>
     <script>
     async function gen(){
@@ -40,38 +30,12 @@ app.get("/", (req, res) => {
         const d=btoa(JSON.stringify({url:u,username:n,password:p}));
         document.getElementById('out').value = window.location.protocol+"//"+window.location.host+"/"+d+"/manifest.json";
         document.getElementById('res').style.display='block';
-        const info = await(await fetch('/check?url='+encodeURIComponent(u)+'&user='+n+'&pass='+p)).json();
-        document.getElementById('expiry').innerText = "باقي على اشتراكك: " + info.days + " يوم";
-    }
-    function copyUrl(){
-        const copyText = document.getElementById("out");
-        copyText.select();
-        document.execCommand("copy");
-        alert('تم النسخ!');
     }
     </script></body></html>`);
 });
 
-app.get("/check", async (req, res) => {
-    try {
-        const {url, user, pass} = req.query;
-        const b = url.replace(/\/$/,"");
-        const d = (await axios.get(`${b}/player_api.php?username=${user}&password=${pass}`)).data;
-        const expDate = new Date(d.user_info.exp_date * 1000);
-        const days = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
-        res.json({days: days > 0 ? days : 0});
-    } catch(e) { res.json({days: 0}); }
-});
-
 app.get("/:config/manifest.json", (req, res) => {
-    res.json({
-        id: "org.khalid.iptv", 
-        version: "1.0.0", 
-        name: "khalid iptv", 
-        types: ["movie", "series"], 
-        resources: ["stream"], 
-        idPrefixes: ["tt"]
-    });
+    res.json({id: "org.khalid.iptv", version: "1.0.0", name: "khalid iptv", types: ["movie", "series"], resources: ["stream"], idPrefixes: ["tt"]});
 });
 
 app.get("/:config/stream/:type/:id.json", async (req, res) => {
@@ -80,34 +44,20 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         const type = req.params.type;
         const b = c.url.replace(/\/$/,"");
         
-        let streams = [];
         const ttId = type === "movie" ? req.params.id.split('.')[0] : req.params.id.split(':')[0];
-        
-        // 1. جلب البيانات الأساسية من المصدر الرسمي
         const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${ttId}.json`);
-        const meta = metaRes.data.meta;
-        const targetName = meta.name.toLowerCase().trim();
-        
-        // كلمات حظر صارمة لاستبعاد الكواليس والإعلانات نهائياً
-        const badWords = ["behind", "making", "trailer", "bts", "interview", "sneak", "promo", "extra", "recap", "gag", "blooper", "featurette"];
+        const targetName = metaRes.data.meta.name.toLowerCase().trim();
+
+        let streams = [];
 
         if (type === "movie") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_vod_streams`)).data;
-            
-            // البحث عن الفيلم بالاسم بدقة والتأكد من خلوه من الكواليس
-            let m = d.find(i => {
-                const vodName = (i.name || "").toLowerCase();
-                return vodName.includes(targetName) && !badWords.some(bw => vodName.includes(bw));
-            });
-
-            if (!m) {
-                m = d.find(i => i.stream_id == ttId);
-            }
-
+            // البحث المباشر دون أي فلترة
+            const m = d.find(i => i.name && i.name.toLowerCase().includes(targetName));
             if (m) {
                 streams.push({
                     name: "khalid iptv", 
-                    title: `🎬 ${meta.name}`, 
+                    title: m.name, 
                     url: `${b}/movie/${c.username}/${c.password}/${m.stream_id}.${m.container_extension || 'mp4'}`
                 });
             }
@@ -116,51 +66,25 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
             const [_, s, e] = req.params.id.split(':');
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series`)).data;
             
-            // التأكد أولاً من مطابقة اسم المسلسل الصحيح (لتجنب تداخل أسماء المسلسلات مثل From وغيره)
-            let m = d.find(i => {
-                const seriesName = (i.name || "").toLowerCase();
-                return seriesName.includes(targetName) || targetName.includes(seriesName);
-            });
+            // البحث عن المسلسل باسمه فقط دون أي استثناءات
+            const m = d.find(i => i.name && i.name.toLowerCase().includes(targetName));
 
             if (m) {
                 const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
                 const seasonEps = epData.episodes[s] || [];
                 
-                // تنظيف القائمة من أي حلقة تحتوي على كلمات كواليس أو إعلانات
-                const cleanEps = seasonEps.filter(ei => {
-                    const t = (ei.title || "").toLowerCase();
-                    return !badWords.some(bw => t.includes(bw));
-                });
-
-                let ep = null;
-
-                // مطابقة رقم الحلقة الفعلي بدقة داخل القائمة النظيفة
-                ep = cleanEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
-
-                // مطابقة بديلة بالنص (في حال لم يضع المزود رقم الحلقة في النظام ووضعه بالعنوان)
-                if (!ep) {
-                    ep = cleanEps.find(ei => {
-                        const t = (ei.title || "").toLowerCase();
-                        return (t.includes(`s${s}e${e}`) || t.includes(`${s}x${e}`) || t.includes(`episode ${e}`) || t.includes(`e${e}`));
-                    });
-                }
+                // العثور على الحلقة بناءً على الرقم فقط
+                const ep = seasonEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
 
                 if (ep) {
                     streams.push({
                         name: "khalid iptv", 
-                        title: `S${s}E${e} - ${meta.name}`, 
+                        title: ep.title || `S${s}E${e}`, 
                         url: `${b}/series/${c.username}/${c.password}/${ep.id}.${ep.container_extension || 'mp4'}`
                     });
                 }
             }
         }
-
-        // إضافة زر الإنستقرام الخاص بك في نهاية القائمة لجميع المشغلات
-        streams.push({
-            name: "Developer", 
-            title: "تابع حساب المطور على الإنستقرام\n@_gq6", 
-            externalUrl: "https://instagram.com/_gq6"
-        });
 
         res.json({ streams: streams });
     } catch(e) { 
