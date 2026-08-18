@@ -70,29 +70,59 @@ app.get("/:config/manifest.json", (req, res) => {
 app.get("/:config/stream/:type/:id.json", async (req, res) => {
     try {
         const c = JSON.parse(Buffer.from(req.params.config, "base64").toString("utf-8"));
-        const [ttId, s, e] = req.params.id.split(':');
+        const type = req.params.type;
         const b = c.url.replace(/\/$/,"");
-        const meta = (await axios.get(`https://v3-cinemeta.strem.io/meta/${req.params.type}/${ttId}.json`)).data.meta;
-        const name = meta.name.toLowerCase();
-
+        
         let streams = [];
-        if (req.params.type === "series") {
+        
+        // جلب اسم المحتوى من ستريميو
+        const ttId = type === "movie" ? req.params.id.split('.')[0] : req.params.id.split(':')[0];
+        const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${ttId}.json`);
+        const name = metaRes.data.meta.name.toLowerCase();
+
+        // 1. قسم الأفلام
+        if (type === "movie") {
+            const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_vod_streams`)).data;
+            const m = d.find(i => i.name && i.name.toLowerCase().includes(name));
+            if (m) {
+                streams.push({
+                    name: "khalid iptv", 
+                    title: "🎬 تشغيل الفيلم", 
+                    url: `${b}/movie/${c.username}/${c.password}/${m.stream_id}.${m.container_extension || 'mp4'}`
+                });
+            }
+        } 
+        // 2. قسم المسلسلات
+        else if (type === "series") {
+            const [_, s, e] = req.params.id.split(':');
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series`)).data;
             const m = d.find(i => i.name && i.name.toLowerCase().includes(name));
-            if(m) {
+            
+            if (m) {
                 const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
-                
                 const seasonEps = epData.episodes[s] || [];
-                // استبعاد أي ملف يحتوي على كلمات كواليس أو إعلانات أولاً
+                
+                // الكلمات المحظورة لمنع الكواليس والإعلانات
+                const badWords = ["behind", "making", "trailer", "bts", "interview", "sneak", "promo", "extra", "recap"];
+                
+                // تنظيف القائمة
                 const cleanEps = seasonEps.filter(ei => {
                     const t = (ei.title || "").toLowerCase();
-                    return !t.includes("behind") && !t.includes("making") && !t.includes("trailer") && !t.includes("bts") && !t.includes("interview");
+                    return !badWords.some(bw => t.includes(bw));
                 });
                 
-                // البحث عن رقم الحلقة في القائمة النظيفة حصراً
-                const ep = cleanEps.find(ei => parseInt(ei.episode_num) === parseInt(e)) || seasonEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
+                // البحث الأساسي برقم الحلقة
+                let ep = cleanEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
+                
+                // البحث البديل (إذا مزود الـ IPTV لم يضع رقم الحلقة ووضعه في العنوان فقط)
+                if (!ep) {
+                    ep = cleanEps.find(ei => {
+                        const t = (ei.title || "").toLowerCase();
+                        return t.includes(`episode ${e}`) || t.includes(`e${e}`) || t.includes(`e0${e}`);
+                    });
+                }
 
-                if(ep) {
+                if (ep) {
                     streams.push({
                         name: "khalid iptv", 
                         title: `S${s}E${e}`, 
@@ -101,9 +131,18 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
                 }
             }
         }
-        streams.push({name: "Developer", title: "تابع حساب المطور على الإنستقرام\n@_gq6", externalUrl: "https://instagram.com/_gq6"});
+
+        // إضافة مصدر الإنستقرام
+        streams.push({
+            name: "Developer", 
+            title: "تابع حساب المطور على الإنستقرام\n@_gq6", 
+            externalUrl: "https://instagram.com/_gq6"
+        });
+
         res.json({ streams: streams });
-    } catch(e) { res.json({ streams: [] }); }
+    } catch(e) { 
+        res.json({ streams: [] }); 
+    }
 });
 
 const PORT = process.env.PORT || 3000;
