@@ -74,16 +74,24 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         const b = c.url.replace(/\/$/,"");
         
         let streams = [];
-        
-        // جلب اسم المحتوى من ستريميو
         const ttId = type === "movie" ? req.params.id.split('.')[0] : req.params.id.split(':')[0];
+        
+        // جلب معلومات العمل من Cinemeta (عبر IMDb ID)
         const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${ttId}.json`);
-        const name = metaRes.data.meta.name.toLowerCase();
+        const meta = metaRes.data.meta;
+        const name = meta.name.toLowerCase();
+        const altName = meta.originalName ? meta.originalName.toLowerCase() : "";
 
-        // 1. قسم الأفلام
+        // الكلمات المحظورة لاستبعاد الكواليس والإعلانات
+        const badWords = ["behind", "making", "trailer", "bts", "interview", "sneak", "promo", "extra", "recap", "khatat", "khalid"];
+
         if (type === "movie") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_vod_streams`)).data;
-            const m = d.find(i => i.name && i.name.toLowerCase().includes(name));
+            // البحث بالطرق المتعددة للأفلام (الاسم، المعرف، أو الاسم البديل)
+            let m = d.find(i => i.name && (i.name.toLowerCase().includes(name) || (altName && i.name.toLowerCase().includes(altName))));
+            if (!m) {
+                m = d.find(i => i.stream_id == ttId);
+            }
             if (m) {
                 streams.push({
                     name: "khalid iptv", 
@@ -92,47 +100,62 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
                 });
             }
         } 
-        // 2. قسم المسلسلات
         else if (type === "series") {
             const [_, s, e] = req.params.id.split(':');
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series`)).data;
-            const m = d.find(i => i.name && i.name.toLowerCase().includes(name));
             
+            // البحث بالاسم الأساسي أو البديل للمسلسل
+            let m = d.find(i => i.name && (i.name.toLowerCase().includes(name) || (altName && i.name.toLowerCase().includes(altName))));
+            if (!m) {
+                m = d.find(i => i.series_id == ttId);
+            }
+
             if (m) {
                 const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
                 const seasonEps = epData.episodes[s] || [];
                 
-                // الكلمات المحظورة لمنع الكواليس والإعلانات
-                const badWords = ["behind", "making", "trailer", "bts", "interview", "sneak", "promo", "extra", "recap"];
-                
-                // تنظيف القائمة
+                // تنظيف القائمة من الكواليس
                 const cleanEps = seasonEps.filter(ei => {
                     const t = (ei.title || "").toLowerCase();
                     return !badWords.some(bw => t.includes(bw));
                 });
-                
-                // البحث الأساسي برقم الحلقة
-                let ep = cleanEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
-                
-                // البحث البديل (إذا مزود الـ IPTV لم يضع رقم الحلقة ووضعه في العنوان فقط)
+
+                let ep = null;
+
+                // 1. طريقة البحث برقم الحلقة المباشر
+                ep = cleanEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
+
+                // 2. طريقة البحث برقم السيزون ورقم الحلقة بالنص داخل العنوان (مثلا S1E1 أو 1x1)
                 if (!ep) {
                     ep = cleanEps.find(ei => {
                         const t = (ei.title || "").toLowerCase();
-                        return t.includes(`episode ${e}`) || t.includes(`e${e}`) || t.includes(`e0${e}`);
+                        return (t.includes(`s${s}e${e}`) || t.includes(`${s}x${e}`) || t.includes(`episode ${e}`) || t.includes(`e${e}`));
                     });
+                }
+
+                // 3. طريقة البحث برقم الحلقة المنفردة في العنوان إذا تعطلت الطرق السابقة
+                if (!ep) {
+                    ep = cleanEps.find(ei => {
+                        const t = (ei.title || "").toLowerCase();
+                        return t.includes(`${e}`) && !t.includes(`${s}`); // التأكد من عدم تداخل رقم السيزون خطأ
+                    });
+                }
+
+                // 4. الحل الأخير الاحتياطي من القائمة الكاملة اذا لم توجد في النظيفة
+                if (!ep) {
+                    ep = seasonEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
                 }
 
                 if (ep) {
                     streams.push({
                         name: "khalid iptv", 
-                        title: `S${s}E${e}`, 
+                        title: `S${s}E${e} - ${ep.title || 'حلقة'}`, 
                         url: `${b}/series/${c.username}/${c.password}/${ep.id}.${ep.container_extension || 'mp4'}`
                     });
                 }
             }
         }
 
-        // إضافة مصدر الإنستقرام
         streams.push({
             name: "Developer", 
             title: "تابع حساب المطور على الإنستقرام\n@_gq6", 
