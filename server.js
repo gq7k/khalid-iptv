@@ -16,7 +16,8 @@ app.get("/", (req, res) => {
         h1 { color: #ff0000; font-size: 22px; }
         input { width: 100%; padding: 15px; margin: 8px 0; border-radius: 8px; border: 1px solid #444; background: #000; color: #fff; box-sizing: border-box; font-size: 16px; }
         button { width: 100%; padding: 15px; background: #ff0000; color: white; border: none; border-radius: 8px; cursor: pointer; margin-top: 10px; font-weight: bold; font-size: 16px; }
-        .footer { margin-top: 20px; color: #ff0000; font-size: 13px; line-height: 1.6; }
+        .footer { margin-top: 20px; color: #ff0000; font-size: 14px; line-height: 1.8; }
+        .footer a { color: #ff0000; text-decoration: none; font-weight: bold; }
     </style></head>
     <body><div class="card"><h1>khalid iptv</h1>
     <input type="text" id="url" placeholder="url / الرابط">
@@ -29,7 +30,9 @@ app.get("/", (req, res) => {
         <div id="expiry" style="margin-top:10px; color:#0f0; font-size:14px;"></div>
     </div>
     <div class="footer">
-        مطور الإضافة: المهندس خالد<br>@_gq6<br>سبحان الله وبحمده سبحان الله العظيم
+        مطور الإضافة: المهندس خالد<br>
+        <a href="https://instagram.com/_gq6" target="_blank">@_gq6</a><br>
+        سبحان الله وبحمده سبحان الله العظيم
     </div></div>
     <script>
     async function gen(){
@@ -78,7 +81,8 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
             const m = d.find(i => i.name && i.name.toLowerCase().includes(name));
             if(m) {
                 const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
-                const ep = epData.episodes[s]?.find(ei => ei.episode_num == e && !ei.title.toLowerCase().includes("behind") && !ei.title.toLowerCase().includes("making"));
+                // البحث بدقة عن رقم الحلقة المساوي للمطلوب
+                const ep = epData.episodes[s]?.find(ei => parseInt(ei.episode_num) === parseInt(e));
                 if(ep) streams.push({name: "khalid iptv", title: `S${s}E${e}`, url: `${b}/series/${c.username}/${c.password}/${ep.id}.${ep.container_extension || 'mp4'}`});
             }
         }
