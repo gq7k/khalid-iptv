@@ -64,7 +64,14 @@ app.get("/check", async (req, res) => {
 });
 
 app.get("/:config/manifest.json", (req, res) => {
-    res.json({id: "org.khalid.iptv", version: "1.0.0", name: "khalid iptv", types: ["movie", "series"], resources: ["stream"], idPrefixes: ["tt"]});
+    res.json({
+        id: "org.khalid.iptv", 
+        version: "1.0.0", 
+        name: "khalid iptv", 
+        types: ["movie", "series"], 
+        resources: ["stream"], 
+        idPrefixes: ["tt"]
+    });
 });
 
 app.get("/:config/stream/:type/:id.json", async (req, res) => {
@@ -76,26 +83,31 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         let streams = [];
         const ttId = type === "movie" ? req.params.id.split('.')[0] : req.params.id.split(':')[0];
         
-        // جلب معلومات العمل من Cinemeta (عبر IMDb ID)
+        // 1. جلب البيانات الأساسية من المصدر الرسمي
         const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${ttId}.json`);
         const meta = metaRes.data.meta;
-        const name = meta.name.toLowerCase();
-        const altName = meta.originalName ? meta.originalName.toLowerCase() : "";
-
-        // الكلمات المحظورة لاستبعاد الكواليس والإعلانات
-        const badWords = ["behind", "making", "trailer", "bts", "interview", "sneak", "promo", "extra", "recap", "khatat", "khalid"];
+        const targetName = meta.name.toLowerCase().trim();
+        
+        // كلمات حظر صارمة لاستبعاد الكواليس والإعلانات نهائياً
+        const badWords = ["behind", "making", "trailer", "bts", "interview", "sneak", "promo", "extra", "recap", "gag", "blooper", "featurette"];
 
         if (type === "movie") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_vod_streams`)).data;
-            // البحث بالطرق المتعددة للأفلام (الاسم، المعرف، أو الاسم البديل)
-            let m = d.find(i => i.name && (i.name.toLowerCase().includes(name) || (altName && i.name.toLowerCase().includes(altName))));
+            
+            // البحث عن الفيلم بالاسم بدقة والتأكد من خلوه من الكواليس
+            let m = d.find(i => {
+                const vodName = (i.name || "").toLowerCase();
+                return vodName.includes(targetName) && !badWords.some(bw => vodName.includes(bw));
+            });
+
             if (!m) {
                 m = d.find(i => i.stream_id == ttId);
             }
+
             if (m) {
                 streams.push({
                     name: "khalid iptv", 
-                    title: "🎬 تشغيل الفيلم", 
+                    title: `🎬 ${meta.name}`, 
                     url: `${b}/movie/${c.username}/${c.password}/${m.stream_id}.${m.container_extension || 'mp4'}`
                 });
             }
@@ -104,17 +116,17 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
             const [_, s, e] = req.params.id.split(':');
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series`)).data;
             
-            // البحث بالاسم الأساسي أو البديل للمسلسل
-            let m = d.find(i => i.name && (i.name.toLowerCase().includes(name) || (altName && i.name.toLowerCase().includes(altName))));
-            if (!m) {
-                m = d.find(i => i.series_id == ttId);
-            }
+            // التأكد أولاً من مطابقة اسم المسلسل الصحيح (لتجنب تداخل أسماء المسلسلات مثل From وغيره)
+            let m = d.find(i => {
+                const seriesName = (i.name || "").toLowerCase();
+                return seriesName.includes(targetName) || targetName.includes(seriesName);
+            });
 
             if (m) {
                 const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
                 const seasonEps = epData.episodes[s] || [];
                 
-                // تنظيف القائمة من الكواليس
+                // تنظيف القائمة من أي حلقة تحتوي على كلمات كواليس أو إعلانات
                 const cleanEps = seasonEps.filter(ei => {
                     const t = (ei.title || "").toLowerCase();
                     return !badWords.some(bw => t.includes(bw));
@@ -122,10 +134,10 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
 
                 let ep = null;
 
-                // 1. طريقة البحث برقم الحلقة المباشر
+                // مطابقة رقم الحلقة الفعلي بدقة داخل القائمة النظيفة
                 ep = cleanEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
 
-                // 2. طريقة البحث برقم السيزون ورقم الحلقة بالنص داخل العنوان (مثلا S1E1 أو 1x1)
+                // مطابقة بديلة بالنص (في حال لم يضع المزود رقم الحلقة في النظام ووضعه بالعنوان)
                 if (!ep) {
                     ep = cleanEps.find(ei => {
                         const t = (ei.title || "").toLowerCase();
@@ -133,29 +145,17 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
                     });
                 }
 
-                // 3. طريقة البحث برقم الحلقة المنفردة في العنوان إذا تعطلت الطرق السابقة
-                if (!ep) {
-                    ep = cleanEps.find(ei => {
-                        const t = (ei.title || "").toLowerCase();
-                        return t.includes(`${e}`) && !t.includes(`${s}`); // التأكد من عدم تداخل رقم السيزون خطأ
-                    });
-                }
-
-                // 4. الحل الأخير الاحتياطي من القائمة الكاملة اذا لم توجد في النظيفة
-                if (!ep) {
-                    ep = seasonEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
-                }
-
                 if (ep) {
                     streams.push({
                         name: "khalid iptv", 
-                        title: `S${s}E${e} - ${ep.title || 'حلقة'}`, 
+                        title: `S${s}E${e} - ${meta.name}`, 
                         url: `${b}/series/${c.username}/${c.password}/${ep.id}.${ep.container_extension || 'mp4'}`
                     });
                 }
             }
         }
 
+        // إضافة زر الإنستقرام الخاص بك في نهاية القائمة لجميع المشغلات
         streams.push({
             name: "Developer", 
             title: "تابع حساب المطور على الإنستقرام\n@_gq6", 
