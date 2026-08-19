@@ -50,7 +50,7 @@ app.get("/", (req, res) => {
             <div class="footer">
                 مطور الإضافة: <strong>المهندس خالد</strong> <br>
                 انستقرام: <a href="https://instagram.com/_gq6" target="_blank">@_gq6</a><br>
-                سبحان الله وبحمده سبحان الله العظيم
+               
                 
                🔴 الاضافه لاتدعم المحتوى العربي والبثوث المباشره حالياً 🔴
             </div>
