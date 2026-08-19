@@ -30,19 +30,21 @@ app.get("/", (req, res) => {
     <body>
         <div class="card">
             <h1>khalid iptv</h1>
-            <p style="font-size: 14px; color: #cbd5e1; margin-bottom: 20px;">أدخل بيانات اشتراكك لتوليد الرابط</p>
+            <p style="font-size: 14px; color: #cbd5e1; margin-bottom: 20px;">أدخل بيانات اشتراكك أو الرابط الكامل</p>
             
-            <input type="text" id="url" placeholder="رابط السيرفر (URL)">
-            <input type="text" id="username" placeholder="اسم المستخدم (Username)">
-            <input type="password" id="password" placeholder="كلمة المرور (Password)">
+            <input type="text" id="url" placeholder="رابط السيرفر أو رابط M3U الكامل">
+            <input type="text" id="username" placeholder="اسم المستخدم (اختياري إذا وضعت الرابط الكامل)">
+            <input type="password" id="password" placeholder="كلمة المرور (اختياري إذا وضعت الرابط الكامل)">
             
             <button onclick="gen()">توليد الرابط</button>
             
             <div id="res" style="margin-top:20px; display:none; text-align: right;">
-                <label style="font-size: 13px; color: #cbd5e1; margin-bottom: 5px; display: block;">رابط الإضافة الخاص بك:</label>
-                <input type="text" id="out" readonly style="color: #38bdf8; background: #0b1120;">
-                <button class="copy-btn" onclick="copyUrl()" id="copyBtn">نسخ الرابط</button>
-                <div id="expiry" style="margin-top:10px; color:#10b981; font-size:14px; text-align:center; font-weight:bold;"></div>
+                <div id="link-container" style="display:none;">
+                    <label style="font-size: 13px; color: #cbd5e1; margin-bottom: 5px; display: block;">رابط الإضافة الخاص بك:</label>
+                    <input type="text" id="out" readonly style="color: #38bdf8; background: #0b1120;">
+                    <button class="copy-btn" onclick="copyUrl()" id="copyBtn">نسخ الرابط</button>
+                </div>
+                <div id="expiry" style="margin-top:10px; color:#ef4444; font-size:14px; text-align:center; font-weight:bold;"></div>
             </div>
 
             <div class="footer">
@@ -53,30 +55,69 @@ app.get("/", (req, res) => {
         </div>
         <script>
             async function gen() {
-                const url = document.getElementById('url').value.trim();
-                const user = document.getElementById('username').value.trim();
-                const pass = document.getElementById('password').value.trim();
+                let rawUrl = document.getElementById('url').value.trim();
+                let user = document.getElementById('username').value.trim();
+                let pass = document.getElementById('password').value.trim();
                 
-                if(!url || !user || !pass) {
-                    alert("الرجاء تعبئة جميع الحقول!");
+                if(!rawUrl) {
+                    alert("الرجاء إدخال الرابط أو بيانات الاشتراك!");
                     return;
                 }
 
-                const data = btoa(JSON.stringify({url: url, username: user, password: pass}));
-                document.getElementById('out').value = window.location.protocol + "//" + window.location.host + "/" + data + "/manifest.json";
-                document.getElementById('res').style.display = 'block';
+                // التحقق مما إذا كان المدخل عبارة عن رابط M3U كامل يحتوي على البيانات
+                if (rawUrl.includes('username=') && rawUrl.includes('password=')) {
+                    try {
+                        const urlObj = new URL(rawUrl);
+                        const params = new URLSearchParams(urlObj.search);
+                        const extUser = params.get('username');
+                        const extPass = params.get('password');
+                        
+                        if (extUser) user = extUser;
+                        if (extPass) pass = extPass;
+                        
+                        // استخلاص السيرفر الأساسي وتنظيفه
+                        urlObj.search = '';
+                        rawUrl = urlObj.toString().replace(/\/get\.php$/, '').replace(/\/player_api\.php$/, '').replace(/\/$/, "");
+                    } catch(e) {}
+                }
+
+                if(!rawUrl || !user || !pass) {
+                    alert("الرجاء التأكد من توفر الرابط واسم المستخدم وكلمة المرور!");
+                    return;
+                }
+
+                const resDiv = document.getElementById('res');
+                const linkContainer = document.getElementById('link-container');
+                const expiryDiv = document.getElementById('expiry');
                 
-                document.getElementById('copyBtn').innerText = "نسخ الرابط";
-                document.getElementById('copyBtn').style.background = "#10b981";
-                document.getElementById('expiry').innerText = "جاري فحص الاشتراك...";
+                resDiv.style.display = 'block';
+                linkContainer.style.display = 'none';
+                expiryDiv.style.color = '#f59e0b';
+                expiryDiv.innerText = "جاري فحص السيرفر والبيانات...";
 
                 try {
-                    const info = await (await fetch('/check?url=' + encodeURIComponent(url) + '&user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass))).json();
-                    if(info.days) {
-                        document.getElementById('expiry').innerText = "حالة الاشتراك: " + info.days;
+                    const response = await fetch('/check?url=' + encodeURIComponent(rawUrl) + '&user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass));
+                    const info = await response.json();
+                    
+                    if (info.status === "error") {
+                        expiryDiv.style.color = '#ef4444';
+                        expiryDiv.innerText = "حالة الاشتراك: " + info.message;
+                        linkContainer.style.display = 'none';
+                    } else {
+                        const data = btoa(JSON.stringify({url: rawUrl, username: user, password: pass}));
+                        document.getElementById('out').value = window.location.protocol + "//" + window.location.host + "/" + data + "/manifest.json";
+                        
+                        linkContainer.style.display = 'block';
+                        expiryDiv.style.color = '#10b981';
+                        expiryDiv.innerText = "حالة الاشتراك: " + info.message;
+                        
+                        document.getElementById('copyBtn').innerText = "نسخ الرابط";
+                        document.getElementById('copyBtn').style.background = "#10b981";
                     }
                 } catch(e) {
-                    document.getElementById('expiry').innerText = "حالة الاشتراك: نشط";
+                    expiryDiv.style.color = '#ef4444';
+                    expiryDiv.innerText = "حالة الاشتراك: تعذر الاتصال بالسيرفر";
+                    linkContainer.style.display = 'none';
                 }
             }
 
@@ -96,17 +137,21 @@ app.get("/", (req, res) => {
     `);
 });
 
-// فحص دقيق لحالة الاشتراك دون تعطيل التوليد
+// فحص دقيق يرجع حالة واضحة نجاح أو خطأ
 app.get("/check", async (req, res) => {
     try {
         const {url, user, pass} = req.query;
+        if (!url || !user || !pass) {
+            return res.json({status: "error", message: "بيانات ناقصة"});
+        }
+        
         const b = url.replace(/\/$/, "");
         const response = await axios.get(`${b}/player_api.php?username=${user}&password=${pass}`, { timeout: 6000 });
         const d = response.data;
         
         if (d && d.user_info) {
             if (d.user_info.auth === 0 || d.user_info.status === "Expired" || d.user_info.status === 0) {
-                return res.json({days: "خطأ في بيانات الاشتراك"});
+                return res.json({status: "error", message: "خطأ في بيانات الاشتراك أو منتهي"});
             }
 
             let exp = d.user_info.exp_date;
@@ -119,17 +164,17 @@ app.get("/check", async (req, res) => {
                 }
                 const days = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
                 if (days <= 0) {
-                    return res.json({days: "منتهي الصلاحية"});
+                    return res.json({status: "error", message: "منتهي الصلاحية"});
                 }
-                res.json({days: `${days} يوم`});
+                return res.json({status: "success", message: `${days} يوم`});
             } else {
-                res.json({days: "نشط"});
+                return res.json({status: "success", message: "نشط"});
             }
         } else {
-            res.json({days: "خطأ في بيانات الاشتراك"});
+            return res.json({status: "error", message: "بيانات السيرفر غير صالحةة"});
         }
     } catch(e) { 
-        res.json({days: "تعذر الاتصال بالسيرفر"}); 
+        return res.json({status: "error", message: "تعذر الاتصال بالسيرفر"}); 
     }
 });
 
