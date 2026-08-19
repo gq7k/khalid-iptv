@@ -50,9 +50,7 @@ app.get("/", (req, res) => {
             <div class="footer">
                 مطور الإضافة: <strong>المهندس خالد</strong> <br>
                 انستقرام: <a href="https://instagram.com/_gq6" target="_blank">@_gq6</a><br>
-               
-                
-          🔴الاضافه لاتدعم المحتوى العربي والبثوث المباشره حاليا🔴
+                سبحان الله وبحمده سبحان الله العظيم
             </div>
         </div>
         <script>
@@ -84,7 +82,6 @@ app.get("/", (req, res) => {
                         expiryDiv.innerText = "حالة الاشتراك: " + info.message;
                         linkContainer.style.display = 'none';
                     } else {
-                        // إذا السيرفر شغال والبيانات صحيحة، نولد الرابط ونعرضه
                         const data = btoa(JSON.stringify({url: url, username: user, password: pass}));
                         document.getElementById('out').value = window.location.protocol + "//" + window.location.host + "/" + data + "/manifest.json";
                         
@@ -127,7 +124,15 @@ app.get("/check", async (req, res) => {
         }
         
         const b = url.replace(/\/$/, "");
-        const response = await axios.get(`${b}/player_api.php?username=${user}&password=${pass}`, { timeout: 6000 });
+        
+        // التعديل هنا فقط: أضفنا الهيدرز والتايم أوت عشان السيرفر يقبل الاتصال
+        const response = await axios.get(`${b}/player_api.php?username=${user}&password=${pass}`, { 
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        });
+        
         const d = response.data;
         
         if (d && d.user_info) {
@@ -182,19 +187,35 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         const b = c.url.replace(/\/$/, "");
         
         const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${cleanId.split(':')[0]}.json`);
-        const targetNameRaw = metaRes.data.meta.name.toLowerCase().trim();
+        const meta = metaRes.data.meta || {};
+        const targetNameRaw = (meta.name || "").toLowerCase().trim();
         const targetNorm = normalize(targetNameRaw);
+        const targetYear = meta.year ? String(meta.year) : "";
 
         let streams = [];
 
         if (type === "movie") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_vod_streams`)).data;
             
-            let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
-            
-            if (!m) {
-                m = d.find(i => normalize(i.name).startsWith(targetNorm));
-            }
+            let m = d.find(i => {
+                const serverNameRaw = (i.name || "").toLowerCase().trim();
+                const serverNorm = normalize(serverNameRaw);
+                
+                // مطابقة عادية أو بالبدايات أو بالاحتواء
+                if (serverNameRaw === targetNameRaw || 
+                    serverNorm.startsWith(targetNorm) || 
+                    (targetNorm.length > 3 && serverNorm.includes(targetNorm)) || 
+                    (serverNorm.length > 3 && targetNorm.includes(serverNorm))) {
+                    return true;
+                }
+
+                // مطابقة احتياطية بالعربية/السنة إذا فشل الاسم
+                if (targetYear && i.year && String(i.year) === targetYear) {
+                    if (/[\u0600-\u06ff]/.test(serverNameRaw)) return true;
+                }
+
+                return false;
+            });
 
             if(m) {
                 streams.push({
@@ -206,24 +227,32 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         } else if (type === "series") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series`)).data;
             
-            let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
+            let m = d.find(i => {
+                const serverNameRaw = (i.name || "").toLowerCase().trim();
+                const serverNorm = normalize(serverNameRaw);
+                
+                let isMatch = serverNameRaw === targetNameRaw || 
+                              serverNorm.startsWith(targetNorm) || 
+                              (targetNorm.length > 3 && serverNorm.includes(targetNorm)) || 
+                              (serverNorm.length > 3 && targetNorm.includes(serverNorm));
 
-            if (!m) {
-                m = d.find(i => {
-                    const serverNameRaw = (i.name || "").toLowerCase().trim();
-                    const serverNorm = normalize(serverNameRaw);
-                    
-                    if (serverNorm.startsWith(targetNorm)) {
-                        const remainder = serverNorm.replace(targetNorm, "");
-                        const spinOffs = ["deadcity", "daryldixon", "oneswholive", "worldbeyond", "fearthewalkingdead"];
-                        if (spinOffs.some(word => remainder.includes(word))) {
-                            return false;
-                        }
-                        return true;
+                // مطابقة احتياطية للمحتوى العربي بناءً على السنة إذا كان الاسم بالحروف العربية في السيرفر
+                if (!isMatch && targetYear && i.releaseDate && i.releaseDate.includes(targetYear)) {
+                    if (/[\u0600-\u06ff]/.test(serverNameRaw)) {
+                        isMatch = true;
                     }
-                    return false;
-                });
-            }
+                }
+
+                if (isMatch) {
+                    const remainder = serverNorm.replace(targetNorm, "");
+                    const spinOffs = ["deadcity", "daryldixon", "oneswholive", "worldbeyond", "fearthewalkingdead"];
+                    if (spinOffs.some(word => remainder.includes(word))) {
+                        return false;
+                    }
+                    return true;
+                }
+                return false;
+            });
 
             if(m) {
                 const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
