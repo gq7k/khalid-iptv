@@ -191,7 +191,13 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
             let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
             
             if (!m) {
-                m = d.find(i => normalize(i.name).startsWith(targetNorm));
+                m = d.find(i => {
+                    const serverNameRaw = (i.name || "").toLowerCase().trim();
+                    const serverNorm = normalize(serverNameRaw);
+                    return serverNorm.startsWith(targetNorm) || 
+                           (targetNorm.length > 3 && serverNorm.includes(targetNorm)) || 
+                           (serverNorm.length > 3 && targetNorm.includes(serverNorm));
+                });
             }
 
             if(m) {
@@ -211,7 +217,12 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
                     const serverNameRaw = (i.name || "").toLowerCase().trim();
                     const serverNorm = normalize(serverNameRaw);
                     
-                    if (serverNorm.startsWith(targetNorm)) {
+                    const isMatch = serverNameRaw === targetNameRaw || 
+                                    serverNorm.startsWith(targetNorm) || 
+                                    (targetNorm.length > 3 && serverNorm.includes(targetNorm)) || 
+                                    (serverNorm.length > 3 && targetNorm.includes(serverNorm));
+
+                    if (isMatch) {
                         const remainder = serverNorm.replace(targetNorm, "");
                         const spinOffs = ["deadcity", "daryldixon", "oneswholive", "worldbeyond", "fearthewalkingdead"];
                         if (spinOffs.some(word => remainder.includes(word))) {
