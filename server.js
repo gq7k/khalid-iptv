@@ -71,9 +71,9 @@ app.get("/", (req, res) => {
 
                 try {
                     const info = await (await fetch('/check?url=' + encodeURIComponent(url) + '&user=' + user + '&pass=' + pass)).json();
-                    document.getElementById('expiry').innerText = "باقي على اشتراكك: " + info.days + " يوم";
+                    document.getElementById('expiry').innerText = "حالة الاشتراك: " + info.days;
                 } catch(e) {
-                    document.getElementById('expiry').innerText = "";
+                    document.getElementById('expiry').innerText = "حالة الاشتراك: نشط";
                 }
             }
 
@@ -93,21 +93,35 @@ app.get("/", (req, res) => {
     `);
 });
 
-// فحص الصلاحية
+// فحص الصلاحية المطور (متوافق مع سيرفرات هولك وباقي السيرفرات)
 app.get("/check", async (req, res) => {
     try {
         const {url, user, pass} = req.query;
         const b = url.replace(/\/$/, "");
-        const d = (await axios.get(`${b}/player_api.php?username=${user}&password=${pass}`)).data;
-        if (d && d.user_info && d.user_info.exp_date) {
-            const expDate = new Date(d.user_info.exp_date * 1000);
+        const response = await axios.get(`${b}/player_api.php?username=${user}&password=${pass}`);
+        const d = response.data;
+        
+        if (d && d.user_info) {
+            let exp = d.user_info.exp_date;
+            
+            if (!exp || exp === "null" || exp === "") {
+                return res.json({days: "نشط"});
+            }
+
+            let expDate;
+            if (!isNaN(exp)) {
+                expDate = new Date(Number(exp) * 1000);
+            } else {
+                expDate = new Date(exp);
+            }
+
             const days = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
-            res.json({days: days > 0 ? days : 0});
+            res.json({days: days > 0 ? `${days} يوم` : "نشط"});
         } else {
-            res.json({days: 0});
+            res.json({days: "نشط"});
         }
     } catch(e) { 
-        res.json({days: 0}); 
+        res.json({days: "نشط"}); 
     }
 });
 
@@ -142,10 +156,8 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         if (type === "movie") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_vod_streams`)).data;
             
-            // 1. الأساسية: تطابق تام
             let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
             
-            // 2. الثانوية الذكية: تبدأ بالاسم وتتجاوز إضافات السنوات
             if (!m) {
                 m = d.find(i => normalize(i.name).startsWith(targetNorm));
             }
@@ -160,10 +172,8 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         } else if (type === "series") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series`)).data;
             
-            // 1. الأساسية: تطابق تام حرفي
             let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
 
-            // 2. الثانوية الذكية: تبدأ بالاسم الأصلي ولكن تستبعد الفروع والمسلسلات الفرعية بدقة
             if (!m) {
                 m = d.find(i => {
                     const serverNameRaw = (i.name || "").toLowerCase().trim();
@@ -171,13 +181,11 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
                     
                     if (serverNorm.startsWith(targetNorm)) {
                         const remainder = serverNorm.replace(targetNorm, "");
-                        
-                        // قائمة الكلمات الفرعية المستبعدة لتجنب لخبطة الفروع (مثل ديد سيتي أو داريل ديكسون)
                         const spinOffs = ["deadcity", "daryldixon", "oneswholive", "worldbeyond", "fearthewalkingdead"];
                         if (spinOffs.some(word => remainder.includes(word))) {
-                            return false; // استبعد الفرع فوراً
+                            return false;
                         }
-                        return true; // اقبل النسخة الأصلية (حتى لو بجانبها سنة مثل 2010)
+                        return true;
                     }
                     return false;
                 });
