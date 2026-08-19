@@ -123,7 +123,9 @@ app.get("/:config/manifest.json", (req, res) => {
     });
 });
 
-// معالج البحث الذكي الدقيق (يمنع تداخل الأسماء مثل Dead City و Beyond)
+// مساعدة لتنظيف النصوص والمقارنة الذكية
+const normalize = (str) => (str || "").toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]/g, "").trim();
+
 app.get("/:config/stream/:type/:id.json", async (req, res) => {
     try {
         const c = JSON.parse(Buffer.from(req.params.config, "base64").toString("utf-8"));
@@ -132,19 +134,20 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         const b = c.url.replace(/\/$/, "");
         
         const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${cleanId.split(':')[0]}.json`);
-        const targetName = metaRes.data.meta.name.toLowerCase().trim();
+        const targetNameRaw = metaRes.data.meta.name.toLowerCase().trim();
+        const targetNorm = normalize(targetNameRaw);
 
         let streams = [];
 
         if (type === "movie") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_vod_streams`)).data;
             
-            // 1. محاولة مطابقة الاسم تطابقاً تاماً بنسبة 100%
-            let m = d.find(i => i.name && i.name.toLowerCase().trim() === targetName);
+            // 1. الأساسية: تطابق تام
+            let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
             
-            // 2. إذا لم يوجد تطابق تام، نبحث عن عمل يبدأ بالاسم المستهدف ولا يحتوي على إضافات مضللة
+            // 2. الثانوية الذكية: تبدأ بالاسم وتتجاوز إضافات السنوات
             if (!m) {
-                m = d.find(i => i.name && i.name.toLowerCase().trim().startsWith(targetName));
+                m = d.find(i => normalize(i.name).startsWith(targetNorm));
             }
 
             if(m) {
@@ -157,23 +160,26 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         } else if (type === "series") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series`)).data;
             
-            // خوارزمية البحث الذكي للمسلسلات لتجنب التشابه (مثل The Walking Dead و Dead City)
-            let m = d.find(i => i.name && i.name.toLowerCase().trim() === targetName);
+            // 1. الأساسية: تطابق تام حرفي
+            let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
 
-            // إن لم يوجد تطابق حرفي، نتحقق أن الاسم يبدأ تماماً بالاسم المستهدف ولا يحتوي على فروع مثل dead city
+            // 2. الثانوية الذكية: تبدأ بالاسم الأصلي ولكن تستبعد الفروع والمسلسلات الفرعية بدقة
             if (!m) {
                 m = d.find(i => {
-                    const serverName = (i.name || "").toLowerCase().trim();
-                    // يجب أن يبدأ بالاسم ولا يكون متبوعاً بكلمات فرعية تفصل المعنى
-                    return serverName.startsWith(targetName) && serverName.length === targetName.length;
-                });
-            }
-
-            // محاولة أخيرة بديلة دقيقة
-            if (!m) {
-                m = d.find(i => {
-                    const serverName = (i.name || "").toLowerCase().trim();
-                    return serverName === targetName;
+                    const serverNameRaw = (i.name || "").toLowerCase().trim();
+                    const serverNorm = normalize(serverNameRaw);
+                    
+                    if (serverNorm.startsWith(targetNorm)) {
+                        const remainder = serverNorm.replace(targetNorm, "");
+                        
+                        // قائمة الكلمات الفرعية المستبعدة لتجنب لخبطة الفروع (مثل ديد سيتي أو داريل ديكسون)
+                        const spinOffs = ["deadcity", "daryldixon", "oneswholive", "worldbeyond", "fearthewalkingdead"];
+                        if (spinOffs.some(word => remainder.includes(word))) {
+                            return false; // استبعد الفرع فوراً
+                        }
+                        return true; // اقبل النسخة الأصلية (حتى لو بجانبها سنة مثل 2010)
+                    }
+                    return false;
                 });
             }
 
