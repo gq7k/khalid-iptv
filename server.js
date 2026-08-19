@@ -30,11 +30,11 @@ app.get("/", (req, res) => {
     <body>
         <div class="card">
             <h1>khalid iptv</h1>
-            <p style="font-size: 14px; color: #cbd5e1; margin-bottom: 20px;">أدخل بيانات اشتراكك أو الرابط الكامل</p>
+            <p style="font-size: 14px; color: #cbd5e1; margin-bottom: 20px;">أدخل بيانات اشتراكك لتوليد الرابط</p>
             
-            <input type="text" id="url" placeholder="رابط السيرفر أو رابط M3U الكامل">
-            <input type="text" id="username" placeholder="اسم المستخدم (اختياري إذا وضعت الرابط الكامل)">
-            <input type="password" id="password" placeholder="كلمة المرور (اختياري إذا وضعت الرابط الكامل)">
+            <input type="text" id="url" placeholder="رابط السيرفر (URL)">
+            <input type="text" id="username" placeholder="اسم المستخدم (Username)">
+            <input type="password" id="password" placeholder="كلمة المرور (Password)">
             
             <button onclick="gen()">توليد الرابط</button>
             
@@ -55,34 +55,12 @@ app.get("/", (req, res) => {
         </div>
         <script>
             async function gen() {
-                let rawUrl = document.getElementById('url').value.trim();
-                let user = document.getElementById('username').value.trim();
-                let pass = document.getElementById('password').value.trim();
+                const url = document.getElementById('url').value.trim();
+                const user = document.getElementById('username').value.trim();
+                const pass = document.getElementById('password').value.trim();
                 
-                if(!rawUrl) {
-                    alert("الرجاء إدخال الرابط أو بيانات الاشتراك!");
-                    return;
-                }
-
-                // التحقق مما إذا كان المدخل عبارة عن رابط M3U كامل يحتوي على البيانات
-                if (rawUrl.includes('username=') && rawUrl.includes('password=')) {
-                    try {
-                        const urlObj = new URL(rawUrl);
-                        const params = new URLSearchParams(urlObj.search);
-                        const extUser = params.get('username');
-                        const extPass = params.get('password');
-                        
-                        if (extUser) user = extUser;
-                        if (extPass) pass = extPass;
-                        
-                        // استخلاص السيرفر الأساسي وتنظيفه
-                        urlObj.search = '';
-                        rawUrl = urlObj.toString().replace(/\/get\.php$/, '').replace(/\/player_api\.php$/, '').replace(/\/$/, "");
-                    } catch(e) {}
-                }
-
-                if(!rawUrl || !user || !pass) {
-                    alert("الرجاء التأكد من توفر الرابط واسم المستخدم وكلمة المرور!");
+                if(!url || !user || !pass) {
+                    alert("الرجاء تعبئة جميع الحقول!");
                     return;
                 }
 
@@ -96,7 +74,7 @@ app.get("/", (req, res) => {
                 expiryDiv.innerText = "جاري فحص السيرفر والبيانات...";
 
                 try {
-                    const response = await fetch('/check?url=' + encodeURIComponent(rawUrl) + '&user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass));
+                    const response = await fetch('/check?url=' + encodeURIComponent(url) + '&user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass));
                     const info = await response.json();
                     
                     if (info.status === "error") {
@@ -104,7 +82,8 @@ app.get("/", (req, res) => {
                         expiryDiv.innerText = "حالة الاشتراك: " + info.message;
                         linkContainer.style.display = 'none';
                     } else {
-                        const data = btoa(JSON.stringify({url: rawUrl, username: user, password: pass}));
+                        // إذا السيرفر شغال والبيانات صحيحة، نولد الرابط ونعرضه
+                        const data = btoa(JSON.stringify({url: url, username: user, password: pass}));
                         document.getElementById('out').value = window.location.protocol + "//" + window.location.host + "/" + data + "/manifest.json";
                         
                         linkContainer.style.display = 'block';
@@ -171,7 +150,7 @@ app.get("/check", async (req, res) => {
                 return res.json({status: "success", message: "نشط"});
             }
         } else {
-            return res.json({status: "error", message: "بيانات السيرفر غير صالحةة"});
+            return res.json({status: "error", message: "بيانات السيرفر غير صالحة"});
         }
     } catch(e) { 
         return res.json({status: "error", message: "تعذر الاتصال بالسيرفر"}); 
