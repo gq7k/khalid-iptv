@@ -86,7 +86,7 @@ app.get("/", (req, res) => {
                         document.getElementById('out').value = window.location.protocol + "//" + window.location.host + "/" + data + "/manifest.json";
                         
                         linkContainer.style.display = 'block';
-                        expiryDiv.style.color = info.status === "warning" ? '#f59e0b' : '#10b981';
+                        expiryDiv.style.color = '#10b981';
                         expiryDiv.innerText = "حالة الاشتراك: " + info.message;
                         
                         document.getElementById('copyBtn').innerText = "نسخ الرابط";
@@ -115,7 +115,7 @@ app.get("/", (req, res) => {
     `);
 });
 
-// فحص دقيق يوضح حالة الاشتراك أو يتجاوز حظر الاستضافة
+// فحص دقيق يرجع حالة واضحة نجاح أو خطأ
 app.get("/check", async (req, res) => {
     try {
         const {url, user, pass} = req.query;
@@ -124,8 +124,10 @@ app.get("/check", async (req, res) => {
         }
         
         const b = url.replace(/\/$/, "");
+        
+        // التعديل هنا فقط: أضفنا الهيدرز والتايم أوت عشان السيرفر يقبل الاتصال
         const response = await axios.get(`${b}/player_api.php?username=${user}&password=${pass}`, { 
-            timeout: 8000,
+            timeout: 10000,
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             }
@@ -140,21 +142,25 @@ app.get("/check", async (req, res) => {
 
             let exp = d.user_info.exp_date;
             if (exp && exp !== "null" && exp !== "") {
-                let expDate = !isNaN(exp) ? new Date(Number(exp) * 1000) : new Date(exp);
+                let expDate;
+                if (!isNaN(exp)) {
+                    expDate = new Date(Number(exp) * 1000);
+                } else {
+                    expDate = new Date(exp);
+                }
                 const days = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
-                if (days <= 0) return res.json({status: "error", message: "منتهي الصلاحية"});
+                if (days <= 0) {
+                    return res.json({status: "error", message: "منتهي الصلاحية"});
+                }
                 return res.json({status: "success", message: `${days} يوم`});
+            } else {
+                return res.json({status: "success", message: "نشط"});
             }
-            return res.json({status: "success", message: "نشط"});
         } else {
             return res.json({status: "error", message: "بيانات السيرفر غير صالحة"});
         }
     } catch(e) { 
-        // تجاوز حظر الاستضافة وتوليد الرابط مباشرة
-        return res.json({
-            status: "warning", 
-            message: "نشط (تم التوليد بنجاح)"
-        }); 
+        return res.json({status: "error", message: "تعذر الاتصال بالسيرفر"}); 
     }
 });
 
