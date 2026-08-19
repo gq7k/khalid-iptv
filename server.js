@@ -180,8 +180,7 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         const b = c.url.replace(/\/$/, "");
         
         const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${cleanId.split(':')[0]}.json`);
-        const meta = metaRes.data.meta || {};
-        const targetNameRaw = (meta.name || "").toLowerCase().trim();
+        const targetNameRaw = metaRes.data.meta.name.toLowerCase().trim();
         const targetNorm = normalize(targetNameRaw);
 
         let streams = [];
@@ -189,32 +188,30 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         if (type === "movie") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_vod_streams`)).data;
             
-            if (Array.isArray(d)) {
-                let m = d.find(i => {
-                    const serverName = (i.name || "").toLowerCase().trim();
-                    const serverNorm = normalize(serverName);
-                    return serverName === targetNameRaw || 
-                           serverNorm.includes(targetNorm) || 
-                           (targetNorm.length > 2 && serverNorm.startsWith(targetNorm));
-                });
+            let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
+            
+            if (!m) {
+                m = d.find(i => normalize(i.name).startsWith(targetNorm));
+            }
 
-                if(m) {
-                    streams.push({
-                        name: "khalid iptv",
-                        title: m.name,
-                        url: `${b}/movie/${c.username}/${c.password}/${m.stream_id}.${m.container_extension || 'mp4'}`
-                    });
-                }
+            if(m) {
+                streams.push({
+                    name: "khalid iptv",
+                    title: m.name,
+                    url: `${b}/movie/${c.username}/${c.password}/${m.stream_id}.${m.container_extension || 'mp4'}`
+                });
             }
         } else if (type === "series") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series`)).data;
             
-            if (Array.isArray(d)) {
-                let m = d.find(i => {
-                    const serverName = (i.name || "").toLowerCase().trim();
-                    const serverNorm = normalize(serverName);
+            let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
+
+            if (!m) {
+                m = d.find(i => {
+                    const serverNameRaw = (i.name || "").toLowerCase().trim();
+                    const serverNorm = normalize(serverNameRaw);
                     
-                    if (serverName === targetNameRaw || serverNorm.includes(targetNorm) || (targetNorm.length > 2 && serverNorm.startsWith(targetNorm))) {
+                    if (serverNorm.startsWith(targetNorm)) {
                         const remainder = serverNorm.replace(targetNorm, "");
                         const spinOffs = ["deadcity", "daryldixon", "oneswholive", "worldbeyond", "fearthewalkingdead"];
                         if (spinOffs.some(word => remainder.includes(word))) {
@@ -224,22 +221,22 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
                     }
                     return false;
                 });
+            }
 
-                if(m) {
-                    const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
-                    const seasonNum = cleanId.split(':')[1];
-                    const epNum = cleanId.split(':')[2];
-                    
-                    const seasonEps = epData.episodes && epData.episodes[seasonNum] ? epData.episodes[seasonNum] : [];
-                    const ep = seasonEps.find(e => parseInt(e.episode_num) === parseInt(epNum));
+            if(m) {
+                const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
+                const seasonNum = cleanId.split(':')[1];
+                const epNum = cleanId.split(':')[2];
+                
+                const seasonEps = epData.episodes[seasonNum] || [];
+                const ep = seasonEps.find(e => parseInt(e.episode_num) === parseInt(epNum));
 
-                    if(ep) {
-                        streams.push({
-                            name: "khalid iptv",
-                            title: ep.title || `S${seasonNum}E${epNum}`,
-                            url: `${b}/series/${c.username}/${c.password}/${ep.id}.${ep.container_extension || 'mp4'}`
-                        });
-                    }
+                if(ep) {
+                    streams.push({
+                        name: "khalid iptv",
+                        title: ep.title || `S${seasonNum}E${epNum}`,
+                        url: `${b}/series/${c.username}/${c.password}/${ep.id}.${ep.container_extension || 'mp4'}`
+                    });
                 }
             }
         }
