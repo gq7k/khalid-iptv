@@ -4,7 +4,7 @@ const app = express();
 
 app.use(express.json());
 
-// واجهة الصفحة الرئيسية (متوافقة مع الجوال)
+// الواجهة الرئيسية
 app.get("/", (req, res) => {
     res.send(`
     <!DOCTYPE html>
@@ -14,25 +14,24 @@ app.get("/", (req, res) => {
     <style>
         body { font-family: Arial, sans-serif; background: #000; color: #fff; display: flex; justify-content: center; padding: 20px; }
         .card { background: #111; padding: 20px; border-radius: 12px; width: 100%; max-width: 400px; border: 1px solid #222; }
-        h1 { color: #b30000; font-size: 20px; text-align: center; }
+        h1 { color: #8b0000; font-size: 20px; text-align: center; }
         input { width: 100%; padding: 12px; margin: 8px 0; border-radius: 6px; border: 1px solid #333; background: #1a1a1a; color: #fff; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; background: #b30000; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 10px; }
-        .footer { margin-top: 20px; color: #b30000; font-size: 13px; text-align: center; line-height: 1.6; }
-        #res { margin-top: 20px; display: none; }
+        button { width: 100%; padding: 12px; background: #8b0000; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 10px; }
+        .footer { margin-top: 20px; color: #8b0000; font-size: 13px; text-align: center; line-height: 1.6; }
     </style></head>
     <body><div class="card"><h1>khalid iptv</h1>
     <input type="text" id="url" placeholder="الرابط">
     <input type="text" id="username" placeholder="اسم المستخدم">
     <input type="password" id="password" placeholder="كلمة المرور">
     <button onclick="gen()">توليد الرابط</button>
-    <div id="res">
+    <div id="res" style="display:none; margin-top:20px;">
         <input type="text" id="out" readonly>
         <button style="background:#333" onclick="copyUrl()">نسخ الرابط</button>
         <div id="expiry" style="margin-top:10px; color:#0f0;"></div>
     </div>
     <div class="footer">
         مطور الإضافة: المهندس خالد<br>
-        <a href="https://instagram.com/_gq6" style="color:#b30000;text-decoration:none;">@_gq6</a><br>
+        <a href="https://instagram.com/_gq6" style="color:#8b0000;text-decoration:none;">@_gq6</a><br>
         سبحان الله وبحمده سبحان الله العظيم
     </div></div>
     <script>
@@ -66,10 +65,12 @@ app.get("/:config/manifest.json", (req, res) => {
 app.get("/:config/stream/:type/:id.json", async (req, res) => {
     try {
         const c = JSON.parse(Buffer.from(req.params.config, "base64").toString("utf-8"));
-        const type = req.params.type;
         const b = c.url.replace(/\/$/,"");
-        
-        const ttId = type === "movie" ? req.params.id.split('.')[0] : req.params.id.split(':')[0];
+        const type = req.params.type;
+        const idParts = req.params.id.split(':');
+        const ttId = idParts[0];
+
+        // جلب اسم العمل من Cinemeta العالمي
         const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${ttId}.json`);
         const targetName = metaRes.data.meta.name.toLowerCase().trim();
 
@@ -79,35 +80,34 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_vod_streams`)).data;
             const m = d.find(i => i.name && i.name.toLowerCase().includes(targetName));
             if (m) {
-                streams.push({ name: "khalid iptv", title: m.name, url: `${b}/movie/${c.username}/${c.password}/${m.stream_id}.${m.container_extension || 'mp4'}` });
+                streams.push({ 
+                    name: "khalid iptv", 
+                    title: m.name, 
+                    url: `${b}/movie/${c.username}/${c.password}/${m.stream_id}.${m.container_extension || 'mp4'}` 
+                });
             }
-        } 
-        else if (type === "series") {
-            const [_, s, e] = req.params.id.split(':');
+        } else if (type === "series") {
+            const [_, s, e] = idParts;
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series`)).data;
-            
-            // خوارزمية البحث الموثوقة (مطابقة الاسم ثم رقم الحلقة)
             const m = d.find(i => i.name && i.name.toLowerCase().includes(targetName));
-
+            
             if (m) {
                 const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
-                const seasonEps = epData.episodes[s] || [];
+                const ep = epData.episodes[s]?.find(ei => parseInt(ei.episode_num) === parseInt(e));
                 
-                // البحث الذكي: المطابقة الرقمية أولاً
-                let ep = seasonEps.find(ei => parseInt(ei.episode_num) === parseInt(e));
-                
-                // المطابقة الاحتياطية (البحث في العنوان) إذا لم يجد رقم حلقة صريح
-                if (!ep) {
-                    ep = seasonEps.find(ei => ei.title && ei.title.toLowerCase().includes(`episode ${e}`));
-                }
-
                 if (ep) {
-                    streams.push({ name: "khalid iptv", title: ep.title || `S${s}E${e}`, url: `${b}/series/${c.username}/${c.password}/${ep.id}.${ep.container_extension || 'mp4'}` });
+                    streams.push({ 
+                        name: "khalid iptv", 
+                        title: ep.title, 
+                        url: `${b}/series/${c.username}/${c.password}/${ep.id}.${ep.container_extension || 'mp4'}` 
+                    });
                 }
             }
         }
 
+        // إضافة مصدر المطور (لأي مشغل)
         streams.push({ name: "Developer", title: "Instagram: @_gq6", externalUrl: "https://instagram.com/_gq6" });
+        
         res.json({ streams: streams });
     } catch(e) { res.json({ streams: [] }); }
 });
