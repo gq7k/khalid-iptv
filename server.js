@@ -82,7 +82,6 @@ app.get("/", (req, res) => {
                         expiryDiv.innerText = "حالة الاشتراك: " + info.message;
                         linkContainer.style.display = 'none';
                     } else {
-                        // إذا السيرفر شغال والبيانات صحيحة، نولد الرابط ونعرضه
                         const data = btoa(JSON.stringify({url: url, username: user, password: pass}));
                         document.getElementById('out').value = window.location.protocol + "//" + window.location.host + "/" + data + "/manifest.json";
                         
@@ -180,19 +179,29 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         const b = c.url.replace(/\/$/, "");
         
         const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${cleanId.split(':')[0]}.json`);
-        const targetNameRaw = metaRes.data.meta.name.toLowerCase().trim();
+        const meta = metaRes.data.meta || {};
+        const targetNameRaw = (meta.name || "").toLowerCase().trim();
         const targetNorm = normalize(targetNameRaw);
+        const targetYear = meta.year ? String(meta.year) : "";
 
         let streams = [];
 
         if (type === "movie") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_vod_streams`)).data;
             
-            let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
-            
-            if (!m) {
-                m = d.find(i => normalize(i.name).startsWith(targetNorm));
-            }
+            let m = d.find(i => {
+                const serverNameRaw = (i.name || "").toLowerCase().trim();
+                const serverNorm = normalize(serverNameRaw);
+                
+                // مطابقة دقيقة وآمنة للأعمال الأجنبية والعادية
+                if (serverNameRaw === targetNameRaw || 
+                    serverNorm === targetNorm || 
+                    serverNorm.startsWith(targetNorm) || 
+                    (targetNorm.length > 3 && serverNorm.includes(targetNorm))) {
+                    return true;
+                }
+                return false;
+            });
 
             if(m) {
                 streams.push({
@@ -204,24 +213,25 @@ app.get("/:config/stream/:type/:id.json", async (req, res) => {
         } else if (type === "series") {
             const d = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series`)).data;
             
-            let m = d.find(i => (i.name || "").toLowerCase().trim() === targetNameRaw);
+            let m = d.find(i => {
+                const serverNameRaw = (i.name || "").toLowerCase().trim();
+                const serverNorm = normalize(serverNameRaw);
+                
+                let isMatch = serverNameRaw === targetNameRaw || 
+                              serverNorm === targetNorm || 
+                              serverNorm.startsWith(targetNorm) || 
+                              (targetNorm.length > 3 && serverNorm.includes(targetNorm));
 
-            if (!m) {
-                m = d.find(i => {
-                    const serverNameRaw = (i.name || "").toLowerCase().trim();
-                    const serverNorm = normalize(serverNameRaw);
-                    
-                    if (serverNorm.startsWith(targetNorm)) {
-                        const remainder = serverNorm.replace(targetNorm, "");
-                        const spinOffs = ["deadcity", "daryldixon", "oneswholive", "worldbeyond", "fearthewalkingdead"];
-                        if (spinOffs.some(word => remainder.includes(word))) {
-                            return false;
-                        }
-                        return true;
+                if (isMatch) {
+                    const remainder = serverNorm.replace(targetNorm, "");
+                    const spinOffs = ["deadcity", "daryldixon", "oneswholive", "worldbeyond", "fearthewalkingdead"];
+                    if (spinOffs.some(word => remainder.includes(word))) {
+                        return false;
                     }
-                    return false;
-                });
-            }
+                    return true;
+                }
+                return false;
+            });
 
             if(m) {
                 const epData = (await axios.get(`${b}/player_api.php?username=${c.username}&password=${c.password}&action=get_series_info&series_id=${m.series_id}`)).data;
