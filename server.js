@@ -62,14 +62,13 @@ app.get("/", (req, res) => {
                     return;
                 }
 
-                // توليد الرابط فوراً وبدون أي شروط أو قيود
                 const data = btoa(JSON.stringify({url: url, username: user, password: pass}));
                 document.getElementById('out').value = window.location.protocol + "//" + window.location.host + "/" + data + "/manifest.json";
                 document.getElementById('res').style.display = 'block';
                 
                 document.getElementById('copyBtn').innerText = "نسخ الرابط";
                 document.getElementById('copyBtn').style.background = "#10b981";
-                document.getElementById('expiry').innerText = "حالة الاشتراك: نشط";
+                document.getElementById('expiry').innerText = "جاري فحص الاشتراك...";
 
                 try {
                     const info = await (await fetch('/check?url=' + encodeURIComponent(url) + '&user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass))).json();
@@ -97,7 +96,7 @@ app.get("/", (req, res) => {
     `);
 });
 
-// فحص مرن جداً لا يعطل أي سيرفر ابداً
+// فحص دقيق لحالة الاشتراك دون تعطيل التوليد
 app.get("/check", async (req, res) => {
     try {
         const {url, user, pass} = req.query;
@@ -105,20 +104,32 @@ app.get("/check", async (req, res) => {
         const response = await axios.get(`${b}/player_api.php?username=${user}&password=${pass}`, { timeout: 6000 });
         const d = response.data;
         
-        if (d && d.user_info && d.user_info.exp_date) {
+        if (d && d.user_info) {
+            if (d.user_info.auth === 0 || d.user_info.status === "Expired" || d.user_info.status === 0) {
+                return res.json({days: "خطأ في بيانات الاشتراك"});
+            }
+
             let exp = d.user_info.exp_date;
-            if (!isNaN(exp)) {
-                const expDate = new Date(Number(exp) * 1000);
+            if (exp && exp !== "null" && exp !== "") {
+                let expDate;
+                if (!isNaN(exp)) {
+                    expDate = new Date(Number(exp) * 1000);
+                } else {
+                    expDate = new Date(exp);
+                }
                 const days = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
-                res.json({days: days > 0 ? `${days} يوم` : "نشط"});
+                if (days <= 0) {
+                    return res.json({days: "منتهي الصلاحية"});
+                }
+                res.json({days: `${days} يوم`});
             } else {
                 res.json({days: "نشط"});
             }
         } else {
-            res.json({days: "نشط"});
+            res.json({days: "خطأ في بيانات الاشتراك"});
         }
     } catch(e) { 
-        res.json({days: "نشط"}); 
+        res.json({days: "تعذر الاتصال بالسيرفر"}); 
     }
 });
 
