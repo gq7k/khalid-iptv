@@ -36,7 +36,7 @@ app.get("/", (req, res) => {
             <input type="text" id="username" placeholder="اسم المستخدم (Username)">
             <input type="password" id="password" placeholder="كلمة المرور (Password)">
             
-            <button onclick="gen()">توليد الرابط</button>
+            <button onclick="gen()" id="genBtn">توليد الرابط</button>
             
             <div id="res" style="margin-top:20px; display:none; text-align: right;">
                 <label style="font-size: 13px; color: #cbd5e1; margin-bottom: 5px; display: block;">رابط الإضافة الخاص بك:</label>
@@ -62,19 +62,36 @@ app.get("/", (req, res) => {
                     return;
                 }
 
-                const data = btoa(JSON.stringify({url: url, username: user, password: pass}));
-                document.getElementById('out').value = window.location.protocol + "//" + window.location.host + "/" + data + "/manifest.json";
-                document.getElementById('res').style.display = 'block';
-                
-                document.getElementById('copyBtn').innerText = "نسخ الرابط";
-                document.getElementById('copyBtn').style.background = "#10b981";
+                const btn = document.getElementById('genBtn');
+                btn.innerText = "جاري التحقق من البيانات...";
+                btn.disabled = true;
 
                 try {
-                    const info = await (await fetch('/check?url=' + encodeURIComponent(url) + '&user=' + user + '&pass=' + pass)).json();
-                    document.getElementById('expiry').innerText = "حالة الاشتراك: " + info.days;
+                    const res = await fetch('/check?url=' + encodeURIComponent(url) + '&user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass));
+                    const info = await res.json();
+
+                    if (!info.valid) {
+                        alert(info.message || "فشل الاتصال: بيانات الاشتراك غير صحيحة أو السيرفر غير صالح!");
+                        document.getElementById('res').style.display = 'none';
+                        btn.innerText = "توليد الرابط";
+                        btn.disabled = false;
+                        return;
+                    }
+
+                    const data = btoa(JSON.stringify({url: url, username: user, password: pass}));
+                    document.getElementById('out').value = window.location.protocol + "//" + window.location.host + "/" + data + "/manifest.json";
+                    document.getElementById('expiry').innerText = "حالة الاشتراك: " + info.statusText;
+                    document.getElementById('res').style.display = 'block';
+                    
+                    document.getElementById('copyBtn').innerText = "نسخ الرابط";
+                    document.getElementById('copyBtn').style.background = "#10b981";
                 } catch(e) {
-                    document.getElementById('expiry').innerText = "حالة الاشتراك: نشط";
+                    alert("حدث خطأ أثناء الاتصال بالسيرفر، تأكد من صحة رابط السيرفر.");
+                    document.getElementById('res').style.display = 'none';
                 }
+
+                btn.innerText = "توليد الرابط";
+                btn.disabled = false;
             }
 
             function copyUrl() {
@@ -93,35 +110,45 @@ app.get("/", (req, res) => {
     `);
 });
 
-// فحص الصلاحية المطور (متوافق مع سيرفرات هولك وباقي السيرفرات)
+// فحص الصلاحية والمصادقة بدقة
 app.get("/check", async (req, res) => {
     try {
         const {url, user, pass} = req.query;
+        if (!url || !user || !pass) {
+            return res.json({valid: false, message: "الرجاء إدخال كافة البيانات"});
+        }
+
         const b = url.replace(/\/$/, "");
-        const response = await axios.get(`${b}/player_api.php?username=${user}&password=${pass}`);
+        const response = await axios.get(`${b}/player_api.php?username=${user}&password=${pass}`, { timeout: 8000 });
         const d = response.data;
         
-        if (d && d.user_info) {
+        // التحقق من أن السيرفر رد ببيانات المستخدم وصلاحية صحيحة (auth === 1)
+        if (d && d.user_info && d.user_info.auth === 1) {
             let exp = d.user_info.exp_date;
-            
-            if (!exp || exp === "null" || exp === "") {
-                return res.json({days: "نشط"});
+            let statusText = "نشط";
+
+            if (exp && exp !== "null" && exp !== "") {
+                let expDate;
+                if (!isNaN(exp)) {
+                    expDate = new Date(Number(exp) * 1000);
+                } else {
+                    expDate = new Date(exp);
+                }
+                const days = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
+                statusText = days > 0 ? `${days} يوم` : "منتهي الصلاحية";
+                
+                // إذا كان الاشتراك منتهي فعلياً
+                if (days <= 0) {
+                    return res.json({valid: false, message: "عذراً، اشتراك الـ IPTV هذا منتهي الصلاحية!"});
+                }
             }
 
-            let expDate;
-            if (!isNaN(exp)) {
-                expDate = new Date(Number(exp) * 1000);
-            } else {
-                expDate = new Date(exp);
-            }
-
-            const days = Math.ceil((expDate - new Date()) / (1000 * 60 * 60 * 24));
-            res.json({days: days > 0 ? `${days} يوم` : "نشط"});
+            return res.json({valid: true, statusText: statusText});
         } else {
-            res.json({days: "نشط"});
+            return res.json({valid: false, message: "اسم المستخدم أو كلمة المرور أو رابط السيرفر خاطئ!"});
         }
     } catch(e) { 
-        res.json({days: "نشط"}); 
+        return res.json({valid: false, message: "تعذر الاتصال بسيرفر الـ IPTV، تأكد من صحة الرابط."}); 
     }
 });
 
